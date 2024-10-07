@@ -153,47 +153,59 @@ def query(qstring):
     
     query_magnitude = math.sqrt(length)
     
-    actual_scores = Counter() #this stores the cosine similarity of complete matches
-    upper_bound_scores = Counter() #this stores cosine similarity value of partial match and upper bound
 
+    cosine_scores = {}  # cosine
+    upper_bound_weight = {}
+    top_10_postings = {}
+    
     # Cosine similarity
     for token in stemmed_query_tokens:
         if token in list_sorted_tf_idf:
-            top_10_postings = list_sorted_tf_idf[token][:10]  # top-10 elements
+            top_10_postings[token] = {doc: weight for doc, weight in list_sorted_tf_idf[token][:10]}  # top-10 elements
             # print(f"Token={token} Posting= {top_10_postings}")
             
-            # 10th weight is the upper-bound weight 
-            upper_bound_weight = top_10_postings[-1][1] if len(top_10_postings) == 10 else 0
             
-            for doc, weight in top_10_postings:
-                actual_scores[doc] += query_tf[token] * weight / query_magnitude
+            if not top_10_postings[token]:  # Check if the posting list is empty
+                return ("None", 0)
+
+            for doc, weight in top_10_postings[token].items():
+                if doc not in cosine_scores:
+                    cosine_scores[doc] = 0
+                cosine_scores[doc] += query_tf[token] * weight / query_magnitude
             
-            # Document not in top-10 get the weight as upper-bound)
-            for doc in normalized_tf_idf:
-                if doc not in actual_scores:
-                    upper_bound_scores[doc] += query_tf[token] * upper_bound_weight / query_magnitude
         else:
-            # If no document contains any token in the query return None
             return ("None", 0)
+        
+    # print("top 10", top_10_postings)
+    for token in stemmed_query_tokens:
+        if token in list_sorted_tf_idf:
+            
+            upper_bound_weight[token] = min(weight for dx, weight in top_10_postings[token].items()) if top_10_postings[token] else 0
+
+            for doc in cosine_scores:
+                if not any(d == doc for d in top_10_postings[token]):
+                    cosine_scores[doc] += query_tf[token] * upper_bound_weight[token] / query_magnitude
+
+
+    max_value = -1
+    best_doc = None
     
-    # If actual_scores is empty, return None
-    if not actual_scores:
-        return ("None", 0)
     
-    # Merge actual and upper-bound scores
-    for doc in normalized_tf_idf:
-        if doc not in actual_scores:
-            actual_scores[doc] = upper_bound_scores[doc]
-    
-    # Finding the document with the highest actual score
-    best_doc = max(actual_scores.items(), key=lambda x: x[1])
-    
-# If the best document is in upper-bound scores, fetch more elements
-    if best_doc[0] in upper_bound_scores:
+    for doc, cosweight in cosine_scores.items():
+        in_all_token = True
+        for token in stemmed_query_tokens:
+            if doc not in top_10_postings[token]:
+                in_all_token = False
+                break
+            
+        if in_all_token and cosweight > max_value:
+            best_doc = doc
+            max_value = cosweight
+            
+    if best_doc == None:
         return ("fetch more", 0)
     else:
-    # If it's not, return the best document and its score
-        return best_doc
+        return(best_doc, max_value)
 
 
 
